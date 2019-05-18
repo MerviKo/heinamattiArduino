@@ -3,8 +3,10 @@
 // TMP36 parameters
 int tempSensorPin = A0;  // Temp sensor in pin0
 
+#define DEBUGGING
+
 // Lock parameters
-int highLowPin = 12; //Pin to set High and 
+int highLowPin = 12; //Pin to set High and low to control lock
 int highLowPin2 = 13;
 int lock = 1;
 int lock2 = 2;
@@ -17,9 +19,9 @@ int responseTime = 100; //communication timeout
 boolean timerOn = false; //timer set off
 boolean lock1_open = false;
 boolean lock2_open = false;
-int partTime = 0;  //80% of given time
-int leftTime = 0; // rest of the given time
-int totalTime = 0; //total time to wait
+long partTime = 0;  //80% of given time
+long leftTime = 0; // rest of the given time
+long totalTime = 0; //total time to wait
 unsigned long currentTime = 0; 
 
 AltSoftSerial wifiSerial;      //  for ESP8266
@@ -27,6 +29,10 @@ AltSoftSerial wifiSerial;      //  for ESP8266
 void setup()
 {
   pinMode(highLowPin,OUTPUT);
+  pinMode(highLowPin2,OUTPUT);
+  delay(5000);  // Voi poistaa
+  digitalWrite(highLowPin, HIGH);
+  digitalWrite(highLowPin2, HIGH);
   // Open serial communications and wait for port to open esp8266:
   Serial.begin(serialBaudrate);
   while (!Serial) {
@@ -63,8 +69,12 @@ void loop()
   if(wifiSerial.available()>0){
     handleWifiMessage();
   }
-
+  
   if (timerOn){                               //int partTime 80% of given time int totalTime all of the given time
+ /*   Serial.print("elapsed:");
+    Serial.println(elapsedTime());
+    Serial.print("totalTime");
+    Serial.println(totalTime);*/
     if (lock1_open && lock2_open)
     {
       // This should never happen!
@@ -74,12 +84,12 @@ void loop()
       {
         openLock(lock2);
         lock2_open = true;
-        timerOn=(false);
+        timerOn = false;
       }
       else
       {
         openLock(lock);
-        timerOn=(false);
+        timerOn = false;
         lock1_open = true;
       }
     }
@@ -90,29 +100,27 @@ void loop()
         lock1_open = true;
       }
     }
-  }
+    delay(900);  // For debug to not loop too fast
+  } // timerOn
   delay(responseTime);
 }
 
-int elapsedTime(){
-
-  unsigned long now = millis() ;
-  int spentTime;
-  spentTime = (int) now - (int) currentTime;
-  leftTime = spentTime;
-  return (spentTime); 
-  
+long elapsedTime(){
+  long spentTime;
+  spentTime = millis() - currentTime;
+  leftTime = totalTime- spentTime;
+  return spentTime;
 }
 
 void handleSerialMessage(){
   String message = readSerialMessage();
-  Serial.print("USB serialilta: ");
-  Serial.println(message);
+ /* Serial.print("USB serialilta: ");
+  Serial.println(message);*/
   if(find(message,"debugEsp8266:")){
-    Serial.println("Lähetetään WiFi serialille");
+   // Serial.println("Lähetetään WiFi serialille");
     String result = sendToWifi(message.substring(13,message.length()),responseTime,DEBUG);
-    Serial.print("Response: ");
-    Serial.println(result);
+  /*  Serial.print("Response: ");
+    Serial.println(result);*/
     if(find(result,"OK")){
       sendData("\nOK");
     }
@@ -127,25 +135,12 @@ void handleWifiMessage(){
   Serial.print("Received from WiFi: ");
   Serial.println(message);
     
-  if(find(message,"esp8266:")){
-    String result = sendToWifi(message.substring(8,message.length()),responseTime,DEBUG);
-    Serial.print("Sending command to ESP8266");
-    if(find(result,"OK"))
-      sendData("\n"+result);
-    else
-      sendData("\nError reading message");               //At command ERROR CODE for Failed Executing statement
-    }
-  else if(find(message,"HELLO")){  //receives HELLO from wifi
-    Serial.println("HI!");    //arduino says HI
-    sendData("HI!");
-  }
-  else if(find(message,"TEMP")){
-    Serial.println("TEMP:22");    //arduino sends temperature
-    readTemperature;
+  if(find(message,"TEMP")){    //arduino sends temperature
+    sendTemperature(readTemperature());
     }
   else if(find(message,"Nollaus")){ //Set timer off
+    Serial.println("Nollaus");
     timerOn = false;
-    calculateTime(0);
   }   
   else if(find(message,"TIMER_GET")){ // asking if timer is already on
     if (timerOn == true){
@@ -159,7 +154,8 @@ void handleWifiMessage(){
     sendData("TIME_SET"+leftTime);
     
   }
-  else if(find(message,"TimerSet")){ // set new timer
+  else if(find(message,"TIMER_SET")){ // set new timer
+   /* Serial.println("Found TIMER_SET");*/
     if (find(message,"time1")){
       calculateTime(4);    
     }
@@ -175,11 +171,29 @@ void handleWifiMessage(){
     else if(find(message,"time5")){ //receives timevalue from wifi
       calculateTime(12);
     }
+    else{
+      sendData("Invalid timer!" + message);
+      return;
+    }
+    lock1_open = false;
+    lock2_open = false;
+  }
+  // For testing only!
+  else if(find(message,"LOCK1")){
+    //Serial.println("Open lock 1");
+    openLock(1);
+  }
+  else if(find(message,"LOCK2")){
+    //Serial.println("Open lock 2");
+    openLock(2);
+  }
+  else if(find(message,"SEND OK")){
+    // SEND OK, do nothing
   }
   else{
-    Serial.print("\nUnknown command!");
-    Serial.println(message);
-    sendData("\nUnknown command!");                 //Command ERROR CODE for UNABLE TO READ 
+  /*  Serial.print("\nUnknown command!");
+    Serial.println(message);*/
+    sendData("Unknown command:" + message);                 //Command ERROR CODE for UNABLE TO READ 
   }
 }
 
@@ -192,13 +206,16 @@ float readTemperature(){
   // now print out the temperature
   float temperatureC = (voltage - 0.5) * 100 ;  //converting from 10 mv per degree wit 500 mV offset
                                                 //to degrees ((voltage - 500mV) times 100)
+  return temperatureC;
+}
+
+void sendTemperature(float temperatureC){
   String celsius;
   celsius = String(temperatureC);
   
-  Serial.print(temperatureC);
-  Serial.println(" degrees C");
+ /* Serial.print(temperatureC);
+  Serial.println(" degrees C");*/
   sendData("temp:"+celsius);
-  return (temperatureC);
 }
 
 /*
@@ -208,13 +225,14 @@ float readTemperature(){
 * Returns: void
 */
 void sendData(String str){
+  Serial.print("Send ");
+  Serial.println(str);
   String len="";
   len+=str.length();
-  sendToWifi("AT+CIPSEND=0,"+len,responseTime,DEBUG);
+  sendToWifi("AT+CIPSEND=0," + len, responseTime, DEBUG);
   delay(100);
   sendToWifi(str,responseTime,DEBUG);
   delay(100);
-  //sendToWifi("AT+CIPCLOSE=5",responseTime,DEBUG);
 }
 
 
@@ -260,12 +278,13 @@ String readWifiSerialMessage(){
   char value[100]; 
   int index_count =0;
   while(wifiSerial.available()>0){
-    value[index_count]=wifiSerial.read();
+    value[index_count] = wifiSerial.read();
     index_count++;
     value[index_count] = '\0'; // Null terminate the string
+    delay(10);
   }
   String str(value);
-  Serial.println(str);
+  //Serial.println(str);
   str.trim();
   return str;
 }
@@ -280,8 +299,8 @@ String readWifiSerialMessage(){
 */
 String sendToWifi(String command, const int timeout, boolean debug){
   String response = "";
-  Serial.print("Lähetetään WiFiSerialille: ");
-  Serial.println(command);
+ /* Serial.print("Lähetetään WiFiSerialille: ");
+  Serial.println(command);*/
   wifiSerial.println(command); // send the read character to the esp8266
   long int time = millis();
   while( (time+timeout) > millis())
@@ -331,17 +350,33 @@ String sendToUno(String command, const int timeout, boolean debug){
 * Description: Function calculate 80% of given time
 *
 ************************/
-
+/*
 int calculateTime (int giventime)
 {
   Serial.println("Calculate time");
   int totalTime = giventime;
   currentTime = millis();
-  partTime = totalTime / 100 * 80;  //partTime is 80% of given time 
-
-
+  // partTime = totalTime / 100 * 80;  //partTime is 80% of given time 
+  partTime = 1;
+  timerOn = true;  // Set timer ON
 }
-
+*/
+void calculateTime (int giventime)
+{
+ // Serial.println("Calculate time");
+  currentTime = millis();
+#ifdef DEBUGGING
+  totalTime = giventime * 1000;
+#elif
+  totalTime = giventime * 3600 * 1000;
+#endif
+  partTime = totalTime / 100 * 80;  //partTime is 80% of given time 
+  timerOn = true;  // Set timer ON
+ /* Serial.print("currentTime:");
+  Serial.println(currentTime);
+  Serial.print("totalTime:");
+  Serial.println(totalTime);*/
+}
 
 /************************
 * Name: openLock
@@ -350,18 +385,18 @@ int calculateTime (int giventime)
 *************************/
 
 int openLock(int lock){
-  Serial.println("openLock");
+//  Serial.println("openLock");
   if (lock == 1){
-    Serial.println("lock1");
-    digitalWrite(highLowPin, HIGH); // sets power on to relay
+   // Serial.println("lock1");
+    digitalWrite(highLowPin, LOW); // sets power on to relay
     delay(2000);                      // waits for two second
-    digitalWrite(highLowPin, LOW);  // sets power off to relay
+    digitalWrite(highLowPin, HIGH);  // sets power off to relay
     delay(2000);
   }else if (lock == 2){
-    Serial.println("lock2");
-    digitalWrite(highLowPin2, HIGH); // sets power on to relay
+  //  Serial.println("lock2");
+    digitalWrite(highLowPin2, LOW); // sets power on to relay
     delay(2000);                      // waits for two second
-    digitalWrite(highLowPin2, LOW);  // sets power off to relay
+    digitalWrite(highLowPin2, HIGH);  // sets power off to relay
     delay(2000);
     }
  
