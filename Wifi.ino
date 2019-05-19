@@ -172,9 +172,8 @@ float readTemperature(){
   int adc = analogRead(tempSensorPin);
   int milliVolts = analogRead(tempSensorPin) * (5000/1024);
   double voltage = double(adc) * 5.0 / 1024;
-  // now print out the temperature
-  float temperatureC = (voltage - 0.5) * 100 ;  //converting from 10 mv per degree wit 500 mV offset to degrees ((voltage - 500mV) times 100)
-  return temperatureC;
+  float temperatureC = (voltage - 0.5) * 100 ;  //converting from 10 mv per degree wit 500 mV 
+  return temperatureC;                          //offset to degrees ((voltage - 500mV) times 100)
 }
 
 /************
@@ -196,10 +195,6 @@ void sendTemperature(float temperatureC){
 * Returns: void
 *************/
 void sendData(String str){
-  Serial.print("sendData:");
-  Serial.println(str);
-  Serial.print("leftTime:");
-  Serial.println(leftTime);
   String len="";
   len+=str.length();
   sendToWifi("AT+CIPSEND=0," + len, responseTime, DEBUG);
@@ -302,7 +297,7 @@ String sendToWifi(String command, const int timeout, boolean debug){
 *****************/
 String sendToUno(String command, const int timeout, boolean debug){
   String response = "";
-  Serial.println(command); // send the read character to the esp8266
+  Serial.println(command); // send the read character to the Arduino
   long int time = millis();
   while( (time+timeout) > millis())
   {
